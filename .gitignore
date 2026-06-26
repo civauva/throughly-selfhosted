@@ -1,0 +1,5 @@
+# Local config and backups — never commit these.
+.env
+backups/
+
+.DS_Store

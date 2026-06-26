@@ -1,0 +1,71 @@
+# Throughly — self-hosted stack (prebuilt images from Docker Hub; no build needed).
+# Images default to the official `laushaner` namespace; override REGISTRY in .env to use your own mirror.
+#
+#   docker compose pull
+#   docker compose up -d
+#
+# Compose automatically reads variables from a `.env` file in this directory, so no extra flags are needed.
+name: throughly-onprem
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: ${DB_USER:-throughly}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-throughly}
+      POSTGRES_DB: ${DB_NAME:-throughly}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-throughly} -d ${DB_NAME:-throughly}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+    networks: [throughly]
+
+  api:
+    image: ${REGISTRY:-laushaner}/throughly-api:${TAG:-latest}
+    environment:
+      Deployment__Mode: onprem
+      ConnectionStrings__AppDb: Host=${DB_HOST:-postgres};Port=${DB_PORT:-5432};Database=${DB_NAME:-throughly};Username=${DB_USER:-throughly};Password=${DB_PASSWORD:-throughly}
+      Storage__Root: /app/uploads
+      Logging__Root: /app/logs
+      Logging__MinimumLevel: ${LOG_LEVEL:-Warning}
+      Email__Smtp__From: ${SMTP_FROM:-no-reply@localhost}
+      App__BaseUrl: ${APP_BASE_URL:-}
+      MailObserver__Enabled: ${MAIL_OBSERVER:-false}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - uploads:/app/uploads
+      - logs:/app/logs
+    restart: unless-stopped
+    networks: [throughly]
+
+  proxy:
+    image: ${REGISTRY:-laushaner}/throughly-web:${TAG:-latest}
+    environment:
+      APP_ADDRESS: ${APP_ADDRESS:-:80}
+    ports:
+      - "${HTTP_PORT:-8080}:80"
+      - "${HTTPS_PORT:-8443}:443"
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - api
+    restart: unless-stopped
+    networks: [throughly]
+
+volumes:
+  pgdata:
+  uploads:
+  logs:
+  caddy_data:
+  caddy_config:
+
+networks:
+  throughly:
+    name: throughly-onprem
